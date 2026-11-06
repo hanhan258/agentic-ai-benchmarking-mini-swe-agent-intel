@@ -18,10 +18,16 @@ Open `http://localhost:8080`.
 The compose service mounts `./runs` into the container, so run results written on
 the host are visible in the dashboard.
 
+## Configuration with `.env`
+
+The sweep runner reads `.env` in the project directory. Use `cp .env.example .env`
+and set the LiteLLM key and repository/task values once. Explicit shell variables
+override the file; use `AAB_ENV_FILE=/path/to/run.env` for another configuration.
+
 ## Host Dashboard
 
 Use host mode when the dashboard should launch sweeps or when scripts need
-access to local `docker`, `dcgmi`, and AMD PCM tooling:
+access to local `docker`, `dcgmi`, and Intel PCM tooling:
 
 ```bash
 python3 -m pip install -e .
@@ -35,6 +41,21 @@ docker build -f docker/mini-swe-agent.Dockerfile -t aab-mini-swe-agent:latest .
 ```
 
 The team runner defaults to that image when `RUNTIME_TYPE=docker`.
+
+## Intel DRAM bandwidth collector
+
+The Intel version uses the newer PCM binary because the Ubuntu package version may not
+recognize Emerald Rapids Xeon Gold 6530. Set `PCM_BIN` to the compiled binary:
+
+```bash
+export PCM_BIN=/opt/intel-pcm-current/build/bin/pcm-memory
+export PCM_INTERVAL_SEC=1
+export PCM_OUTPUT_FILE=intel_pcm_memory.csv
+```
+
+The collector runs as root, uses `pcm-memory <interval> -nc -csv=<file> -f`, and stops
+its own process with `SIGINT`. The parser reads the system-wide `Read`, `Write`, and
+`Memory` columns and converts MB/s to GB/s.
 
 ## Start vLLM
 
@@ -50,7 +71,7 @@ bin/start_vllm_8x5090.sh
 Verify:
 
 ```bash
-curl -fsS http://127.0.0.1:8000/v1/models -H "Authorization: Bearer token-abc123"
+curl -fsS http://127.0.0.1:4000/v1/models -H "Authorization: Bearer $OPENAI_API_KEY"
 ```
 
 ## Run a Django Sweep
@@ -65,8 +86,8 @@ CONTEXT_LENGTH=4096 \
 PARALLELISM=8 \
 ADAPTER_MODE=cli \
 RUNTIME_TYPE=docker \
-MODEL=agentic-model \
-VLLM_BASE_URL=http://127.0.0.1:8000/v1 \
+MODEL=DeepSeek-V4-Flash \
+VLLM_BASE_URL=http://127.0.0.1:4000/v1 \
 TASK_SOURCE=local \
 TASK="Inspect the Django repository and make a focused improvement." \
 VERIFY_COMMAND="python -m pytest --collect-only -q" \

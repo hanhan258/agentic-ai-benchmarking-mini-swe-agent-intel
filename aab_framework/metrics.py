@@ -6,8 +6,11 @@ import math
 from pathlib import Path
 from typing import Any
 
+from .intel_pcm import read_intel_pcm_metrics
 
-DRAM_PEAK_BW_GBPS = 580.0
+
+# Xeon Gold 6530: 2 sockets * 8 DDR5 channels * 4800 MT/s * 8 bytes.
+DRAM_PEAK_BW_GBPS = 614.4
 
 
 ALIGNED_FIELDS = [
@@ -125,9 +128,10 @@ def _summarize_point(path: Path, run_seconds: float, workload_seconds: float) ->
     dram_active = _read_float_col(dcgm_source, "dram_active_pct")
     fp32_active = _read_float_col(dcgm_source, "fp32_active_pct")
     fp16_active = _read_float_col(dcgm_source, "fp16_active_pct")
-    dram_bw = _read_pcm_metric(path / "metrics" / "amd_pcm_memory.csv", "Total Mem Bw (GB/s)")
-    dram_rd = _read_pcm_metric(path / "metrics" / "amd_pcm_memory.csv", "Total Mem RdBw (GB/s)")
-    dram_wr = _read_pcm_metric(path / "metrics" / "amd_pcm_memory.csv", "Total Mem WrBw (GB/s)")
+    intel_pcm = read_intel_pcm_metrics(path / "metrics" / "intel_pcm_memory.csv")
+    dram_bw = intel_pcm["memory_bw_gbps"]
+    dram_rd = intel_pcm["read_bw_gbps"]
+    dram_wr = intel_pcm["write_bw_gbps"]
     result_records = _read_result_records(path / "results")
     completed = int(summary.get("completed_tasks", 0))
     failed = int(summary.get("failed_tasks", 0))
@@ -254,20 +258,6 @@ def _read_gpu_memory_used_pct(path: Path) -> list[float]:
                 continue
             if total > 0:
                 values.append(100 * used / total)
-    return values
-
-
-def _read_pcm_metric(path: Path, metric: str) -> list[float]:
-    values: list[float] = []
-    if not path.exists():
-        return values
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if metric not in line or "|" not in line:
-            continue
-        try:
-            values.append(float(line.split("|")[1].strip()))
-        except (IndexError, ValueError):
-            pass
     return values
 
 

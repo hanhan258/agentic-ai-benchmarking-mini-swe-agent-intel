@@ -250,8 +250,7 @@ Metric collectors should be platform-specific:
 ```text
 NVIDIA: nvidia-smi, NVML, DCGM
 AMD GPU: rocm-smi, amd-smi, rocprof
-AMD CPU memory bandwidth: AMDuProfPcm
-Intel CPU memory bandwidth: Intel PCM
+Intel CPU memory bandwidth: Intel PCM (`pcm-memory`)
 ```
 
 ### Isolation Metrics

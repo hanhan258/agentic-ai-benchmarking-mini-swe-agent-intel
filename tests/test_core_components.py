@@ -245,9 +245,10 @@ class CoreComponentTests(unittest.TestCase):
                 "2,0,50,20,200,1000,100,35\n",
                 encoding="utf-8",
             )
-            (metrics / "amd_pcm_memory.csv").write_text(
-                "Total Mem Bw (GB/s)    |            10.00 |            5.00 |            5.00 |\n"
-                "Total Mem Bw (GB/s)    |            20.00 |           10.00 |           10.00 |\n",
+            (metrics / "intel_pcm_memory.csv").write_text(
+                "Date,Time,Mem Read (MB/s),Mem Write (MB/s),Memory (MB/s),Read,Write,Memory\n"
+                "2026-11-05,06:00:00,6000,4000,10000,6000,4000,10000\n"
+                "2026-11-05,06:00:01,12000,8000,20000,12000,8000,20000\n",
                 encoding="utf-8",
             )
 

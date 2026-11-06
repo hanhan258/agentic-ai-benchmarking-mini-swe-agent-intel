@@ -43,13 +43,46 @@ docker compose up --build dashboard
 
 The dashboard listens on `http://localhost:8080` by default. For host-level
 metrics collection and Docker-based agent execution, run the benchmark scripts
-directly on the host so they can access `docker`, `dcgmi`, and the AMD PCM tool.
+directly on the host so they can access `docker`, `dcgmi`, and Intel `pcm-memory`.
 
 Host dashboard:
 
 ```bash
 AAB_UI_PORT=8080 bin/start_dashboard.sh
 ```
+
+## Configuration with `.env`
+
+The sweep runner automatically loads `.env` from this project directory. Copy the
+example once, fill in the repository/task/LiteLLM values, and run without repeating
+exports:
+
+```bash
+cp .env.example .env
+chmod 600 .env
+# Edit .env; do not commit a real OPENAI_API_KEY.
+bin/run_mini_swe_agent_team_v2_sweep_with_metrics.sh
+```
+
+Explicit shell variables override `.env`. To use another file, set
+`AAB_ENV_FILE=/path/to/run.env`.
+
+## Intel Host Metrics
+
+This server-targeted copy uses Intel PCM for DRAM bandwidth and DCGM for GPU metrics.
+The default PCM binary is `/opt/intel-pcm-current/build/bin/pcm-memory`, and it writes
+`metrics/intel_pcm_memory.csv`. The Intel PCM system `Memory (MB/s)` column is
+converted to GB/s by the benchmark parser.
+
+To verify the collector independently:
+
+```bash
+/opt/intel-pcm-current/build/bin/pcm-memory 1 \
+  -nc -csv=/tmp/intel_pcm_memory.csv -f
+```
+
+Stop it with `Ctrl+C`; the generated CSV should contain `Read`, `Write`, and `Memory`
+system totals.
 
 ## Start vLLM
 
@@ -62,8 +95,24 @@ MAX_NUM_BATCHED_TOKENS=16384 \
 bin/start_vllm_8x5090.sh
 ```
 
-The vLLM API defaults to `http://127.0.0.1:8000/v1` with served model name
-`agentic-model`.
+The LiteLLM OpenAI-compatible API defaults to `http://127.0.0.1:4000/v1` with served model name
+`DeepSeek-V4-Flash`.
+
+## LiteLLM connection
+
+This Intel server version keeps the historical `VLLM_BASE_URL` variable name for
+compatibility, but it should point to the LiteLLM proxy, not directly to vLLM:
+
+```bash
+export VLLM_BASE_URL=http://127.0.0.1:4000/v1
+export OPENAI_API_KEY="<your-LiteLLM-key>"
+export MODEL=DeepSeek-V4-Flash
+```
+
+The key is read only from the process environment. Docker Agent workers inherit it
+via `-e OPENAI_API_KEY` without writing it to the repository.
+
+The adapter adds the `openai/` provider prefix internally when a model is supplied without one, so `MODEL=DeepSeek-V4-Flash` works with the LiteLLM OpenAI-compatible endpoint.
 
 ## Run a Mock Sweep
 
@@ -94,8 +143,8 @@ PARALLELISM=8 \
 ADAPTER_MODE=cli \
 RUNTIME_TYPE=docker \
 MINI_COMMAND=mini \
-MODEL=agentic-model \
-VLLM_BASE_URL=http://127.0.0.1:8000/v1 \
+MODEL=DeepSeek-V4-Flash \
+VLLM_BASE_URL=http://127.0.0.1:4000/v1 \
 TASK_SOURCE=local \
 TASK="Inspect the Django repository and identify a focused code-quality fix." \
 VERIFY_COMMAND="python -m pytest --collect-only -q" \
@@ -109,6 +158,9 @@ bin/run_mini_swe_agent_team_v2_sweep_with_metrics.sh
 
 Each child run writes `result.json`; the sweep wrapper combines child results
 into a group `result.json`, `sweep.json`, and `team_sweep_summary.csv`.
+
+
+The Agent worker image sets `MSWEA_CONFIGURED=1` so unattended Docker workers do not open the mini-SWE-agent first-run setup wizard. API credentials are still supplied only at runtime via `OPENAI_API_KEY`.
 
 ## Build the Agent Image
 

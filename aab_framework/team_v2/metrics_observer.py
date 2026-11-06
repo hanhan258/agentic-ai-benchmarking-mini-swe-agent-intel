@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from aab_framework.intel_pcm import read_intel_pcm_metrics
+
 
 class MetricsObserver:
     """Lifecycle wrapper around existing metrics outputs.
@@ -84,18 +86,21 @@ class MetricsObserver:
         gpu = _read_float_col(metrics_dir / "gpu.csv", "utilization_gpu_pct")
         gpu_memory = _read_float_col(metrics_dir / "gpu.csv", "memory_used_mib")
         gpu_memctrl = _read_float_col(metrics_dir / "gpu.csv", "utilization_memory_pct")
-        dram_bw = _read_pcm_metric(metrics_dir / "amd_pcm_memory.csv", "Total Mem Bw (GB/s)")
-        if not any([cpu, memory, gpu, gpu_memory, gpu_memctrl, dram_bw]):
+        intel_pcm = read_intel_pcm_metrics(metrics_dir / "intel_pcm_memory.csv")
+        dram_bw = intel_pcm["memory_bw_gbps"]
+        dram_read_bw = intel_pcm["read_bw_gbps"]
+        dram_write_bw = intel_pcm["write_bw_gbps"]
+        if not any([cpu, memory, gpu, gpu_memory, gpu_memctrl, dram_bw, dram_read_bw, dram_write_bw]):
             return {}
         return {
             "avg_cpu_util": _avg(cpu),
             "max_cpu_util": _max(cpu),
             "avg_memory_used": _avg(memory),
             "max_memory_used": _max(memory),
-            "avg_dram_read_bw": 0,
-            "max_dram_read_bw": 0,
-            "avg_dram_write_bw": 0,
-            "max_dram_write_bw": 0,
+            "avg_dram_read_bw": _avg(dram_read_bw),
+            "max_dram_read_bw": _max(dram_read_bw),
+            "avg_dram_write_bw": _avg(dram_write_bw),
+            "max_dram_write_bw": _max(dram_write_bw),
             "avg_dram_bw": _avg(dram_bw),
             "max_dram_bw": _max(dram_bw),
             "avg_gpu_util": _avg(gpu),
@@ -167,8 +172,8 @@ class MetricsObserver:
             refs["gpu_memory"] = "metrics/gpu.csv"
         if (metrics_dir / "memory.csv").exists():
             refs["memory"] = "metrics/memory.csv"
-        if (metrics_dir / "amd_pcm_memory.csv").exists():
-            refs["dram_bw"] = "metrics/amd_pcm_memory.csv"
+        if (metrics_dir / "intel_pcm_memory.csv").exists():
+            refs["dram_bw"] = "metrics/intel_pcm_memory.csv"
         return refs
 
 
@@ -211,20 +216,6 @@ def _read_float_col(path: Path, column: str) -> list[float]:
                 values.append(float(str(row.get(column, "")).strip()))
             except ValueError:
                 pass
-    return values
-
-
-def _read_pcm_metric(path: Path, metric: str) -> list[float]:
-    if not path.exists():
-        return []
-    values: list[float] = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if metric not in line or "|" not in line:
-            continue
-        try:
-            values.append(float(line.split("|")[1].strip()))
-        except (IndexError, ValueError):
-            pass
     return values
 
 

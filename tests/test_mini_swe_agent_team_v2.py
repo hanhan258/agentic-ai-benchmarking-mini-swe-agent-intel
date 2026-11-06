@@ -47,6 +47,15 @@ class MiniSweAgentTeamV2Tests(unittest.TestCase):
             self.assertEqual(workers[0].effective_context_length, context_length)
             self.assertEqual(plans[0].max_rounds, config.max_rounds_per_issue)
 
+    def test_mini_cli_runtime_environment_disables_first_run_setup(self) -> None:
+        from aab_framework.team_v2.mini_swe_adapter import _llm_runtime_env
+
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}, clear=False):
+            env = _llm_runtime_env()
+
+        self.assertEqual(env["MSWEA_CONFIGURED"], "1")
+        self.assertIsNone(env["OPENAI_API_KEY"])
+
     def test_docker_runtime_default_config_and_command_encapsulation(self) -> None:
         config = TeamRunConfig()
         runtime = DockerRuntime(config)
@@ -615,9 +624,10 @@ class MiniSweAgentTeamV2Tests(unittest.TestCase):
                 "2,0,80,60,1500,2000,120,42\n",
                 encoding="utf-8",
             )
-            (metrics_dir / "amd_pcm_memory.csv").write_text(
-                "Total Mem Bw (GB/s)|50.0\n"
-                "Total Mem Bw (GB/s)|70.0\n",
+            (metrics_dir / "intel_pcm_memory.csv").write_text(
+                "Date,Time,Mem Read (MB/s),Mem Write (MB/s),Memory (MB/s),Read,Write,Memory\n"
+                "2026-11-05,06:00:00,30000,20000,50000,30000,20000,50000\n"
+                "2026-11-05,06:00:01,42000,28000,70000,42000,28000,70000\n",
                 encoding="utf-8",
             )
             (run_dir / "result.json").write_text(

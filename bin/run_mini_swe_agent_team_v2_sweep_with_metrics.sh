@@ -1,6 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Load dotenv defaults. Explicit shell variables always take precedence.
+AAB_ENV_FILE="${AAB_ENV_FILE:-${ENV_FILE:-.env}}"
+if [[ "${AAB_ENV_FILE}" != /* ]]; then
+  AAB_ENV_FILE="${PWD}/${AAB_ENV_FILE}"
+fi
+load_dotenv_defaults() {
+  local file="$1" raw key value
+  [[ -f "$file" ]] || return 0
+  while IFS= read -r raw || [[ -n "$raw" ]]; do
+    raw="${raw#${raw%%[![:space:]]*}}"
+    raw="${raw%${raw##*[![:space:]]}}"
+    [[ -z "$raw" || "${raw:0:1}" == "#" ]] && continue
+    [[ "$raw" == export\ * ]] && raw="${raw#export }"
+    [[ "$raw" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || continue
+    key="${BASH_REMATCH[1]}"
+    [[ -v "$key" ]] && continue
+    value="${BASH_REMATCH[2]}"
+    if [[ ${#value} -ge 2 && "${value:0:1}" == '"' && "${value: -1}" == '"' ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ ${#value} -ge 2 && "${value:0:1}" == "'" && "${value: -1}" == "'" ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+    printf -v "$key" '%s' "$value"
+    export "$key"
+  done < "$file"
+}
+load_dotenv_defaults "$AAB_ENV_FILE"
+
 AGENT_SWEEP="${AGENT_SWEEP:-1 2 4}"
 SWEEP_ROOT="${SWEEP_ROOT:-runs/team-v2-sweep-metrics-$(date +%Y%m%d-%H%M%S)}"
 PARALLELISM="${PARALLELISM:-4}"
@@ -28,13 +56,14 @@ TASK="${TASK:-}"
 VERIFY_COMMAND="${VERIFY_COMMAND:-}"
 VERIFY_TIMEOUT_SEC="${VERIFY_TIMEOUT_SEC:-120}"
 MINI_COMMAND="${MINI_COMMAND:-mini}"
-MODEL="${MODEL:-openai/agentic-model}"
-VLLM_BASE_URL="${VLLM_BASE_URL:-http://127.0.0.1:8000/v1}"
-PCM_BIN="${PCM_BIN:-/home/user/zhi/AMDuProf_Nda_Linux_x64_5.0.1479/bin/AMDuProfPcm}"
+MODEL="${MODEL:-DeepSeek-V4-Flash}"
+VLLM_BASE_URL="${VLLM_BASE_URL:-http://127.0.0.1:4000/v1}"
+PCM_BIN="${PCM_BIN:-/opt/intel-pcm-current/build/bin/pcm-memory}"
+PCM_INTERVAL_SEC="${PCM_INTERVAL_SEC:-1}"
+PCM_OUTPUT_FILE="${PCM_OUTPUT_FILE:-intel_pcm_memory.csv}"
 AAB_DCGMI_BIN="${AAB_DCGMI_BIN:-dcgmi}"
 AAB_DCGM_INTERVAL_MS="${AAB_DCGM_INTERVAL_MS:-1000}"
 AAB_DCGM_FIELD_IDS="${AAB_DCGM_FIELD_IDS:-203,204,252,250,155,150,1002,1003,1004,1005,1007,1008}"
-SUDO_PASSWORD="${SUDO_PASSWORD:-}"
 
 mkdir -p "${SWEEP_ROOT}"
 
@@ -168,21 +197,26 @@ start_pcm() {
   local run_dir="$1"
   mkdir -p "${run_dir}/metrics"
   PCM_PID=""
-  if [[ -x "${PCM_BIN}" && -n "${SUDO_PASSWORD}" ]]; then
-    (
-      printf '%s\n' "${SUDO_PASSWORD}" | sudo -S -p '' "${PCM_BIN}" top \
-        -m memory -a -A system --msr -d 3600 -I 1200 \
-        -o "${run_dir}/metrics/amd_pcm_memory.csv"
-    ) > "${run_dir}/metrics/amd_pcm.stdout" 2> "${run_dir}/metrics/amd_pcm.stderr" &
-    PCM_PID="$!"
-    sleep 2
+  local output_path="${run_dir}/metrics/${PCM_OUTPUT_FILE}"
+  if [[ ! -x "${PCM_BIN}" ]]; then
+    echo "Intel PCM unavailable: ${PCM_BIN}" > "${run_dir}/metrics/intel_pcm_backend.log"
+    return 0
   fi
+  echo "intel_pcm_memory:${PCM_BIN}" > "${run_dir}/metrics/intel_pcm_backend.log"
+  "${PCM_BIN}" "${PCM_INTERVAL_SEC}" \
+    -nc \
+    "-csv=${output_path}" \
+    -silent \
+    -f \
+    > "${run_dir}/metrics/intel_pcm.stdout" \
+    2> "${run_dir}/metrics/intel_pcm.stderr" &
+  PCM_PID="$!"
+  sleep 1
 }
 
 stop_pcm() {
   if [[ -n "${PCM_PID:-}" ]]; then
-    printf '%s\n' "${SUDO_PASSWORD}" | sudo -S -p '' pkill -INT -f "${PCM_BIN}" >/dev/null 2>&1 || true
-    sleep 1
+    kill -INT "${PCM_PID}" >/dev/null 2>&1 || true
     wait "${PCM_PID}" >/dev/null 2>&1 || true
   fi
 }
